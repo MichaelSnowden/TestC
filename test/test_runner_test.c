@@ -67,12 +67,12 @@ TEST(printToStderrNoNewline) {
 SUITE(fileIO, &printToStdout, &printToStderr, &printToStdoutNoNewline, &printToStderrNoNewline)
 
 TEST(sleepThenFail) {
-    sleep(2);
+    sleep(1);
     exit(EXIT_FAILURE);
 }
 
 TEST(sleepThenDereferenceNullPointer) {
-    sleep(3);
+    sleep(1);
     int *x = NULL;
     *x = 0;
 }
