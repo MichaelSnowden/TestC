@@ -8,13 +8,14 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
-
-#define ESC "\033"
-#define CSI ESC "["
-#define FAILED CSI "1;31m"
-#define PASSED CSI "1;32m"
-#define RUNNING CSI "1;34m"
-#define RESET CSI "0m"
+// See https://en.wikipedia.org/wiki/ANSI_escape_code
+#define ESC "\033" // Begin an escape sequence
+#define CSI ESC "[" // Control Sequence Introducer
+#define CLEAR_SCREEN ESC "c" CSI "3J"
+#define FAILED_TEST_COLOR CSI "1;31m"
+#define PASSED_TEST_COLOR CSI "1;32m"
+#define RUNNING_TEST_COLOR CSI "1;34m"
+#define RESET_COLOR CSI "0m"
 
 // Takes a time in nanoseconds and writes it as a nice human-readable format to fd
 int humanizeDuration(long long nanos, int fd) {
@@ -98,7 +99,7 @@ long long getElapsedNanos(const struct timespec *start, const struct timespec *e
 }
 
 // Render a test node recursively
-int renderGraph3(TestNode *node, int indent, int fd) {
+int renderTestNode(TestNode *node, int indent, int fd) {
     dprintf(fd, "%*c%s: ", indent, ' ', node->name);
     if (node->isLeaf) {
         switch (node->state) {
@@ -106,22 +107,23 @@ int renderGraph3(TestNode *node, int indent, int fd) {
                 fprintf(stderr, "tests must be running before render is called\n");
                 return -1;
             case TestState_RUNNING:
-                dprintf(fd, RUNNING "%s" RESET "\n", renderProgress(&node->progressIndicatorState));
+                dprintf(fd, RUNNING_TEST_COLOR "%s" RESET_COLOR "\n",
+                        renderProgress(&node->progressIndicatorState));
                 break;
             case TestState_DONE: {
                 int exitSignal = node->exitSignal;
                 if (WIFEXITED(exitSignal)) {
                     if (WEXITSTATUS(exitSignal) == 0) {
-                        dprintf(fd, PASSED "passed" RESET);
+                        dprintf(fd, PASSED_TEST_COLOR "passed" RESET_COLOR);
                     } else {
-                        dprintf(fd, FAILED "exited: %s" RESET, strsignal(WEXITSTATUS
-                                                                         (exitSignal)));
+                        dprintf(fd, FAILED_TEST_COLOR "exited: %s" RESET_COLOR,
+                                strsignal(WEXITSTATUS(exitSignal)));
                     }
                 } else if (WIFSIGNALED(exitSignal)) {
-                    dprintf(fd, FAILED "terminated: %s" RESET, strsignal(WTERMSIG
-                                                                         (exitSignal)));
+                    dprintf(fd, FAILED_TEST_COLOR "terminated: %s" RESET_COLOR,
+                            strsignal(WTERMSIG(exitSignal)));
                 } else if (WIFSTOPPED(exitSignal)) {
-                    dprintf(fd, FAILED "stopped: %s" RESET,
+                    dprintf(fd, FAILED_TEST_COLOR "stopped: %s" RESET_COLOR,
                             strsignal(WSTOPSIG(exitSignal)));
                 } else {
                     fprintf(stderr, "unknown process status for test: %d", exitSignal);
@@ -145,27 +147,27 @@ int renderGraph3(TestNode *node, int indent, int fd) {
         int prev = 0;
         if (numRunning > 0) {
             prev = 1;
-            dprintf(fd, RUNNING "%d" RESET, numRunning);
+            dprintf(fd, RUNNING_TEST_COLOR "%d" RESET_COLOR, numRunning);
         }
         if (node->numPassed > 0) {
             if (prev) {
                 dprintf(fd, ",");
             }
-            dprintf(fd, PASSED "%d" RESET, node->numPassed);
+            dprintf(fd, PASSED_TEST_COLOR "%d" RESET_COLOR, node->numPassed);
             prev = 1;
         }
         if (node->numFailed > 0) {
             if (prev) {
                 dprintf(fd, ",");
             }
-            dprintf(fd, FAILED "%d" RESET, node->numFailed);
+            dprintf(fd, FAILED_TEST_COLOR "%d" RESET_COLOR, node->numFailed);
         }
         dprintf(fd, ")\n");
         for (int i = 0; i < node->numChildren; ++i) {
             TestNode *child = node->children[i];
             if (
-                    renderGraph3(child, indent
-                                        + 2, fd)) {
+                    renderTestNode(child, indent
+                                          + 2, fd)) {
                 fprintf(stderr,
                         "%s failed to render child\n", node->name);
                 return -1;
@@ -175,6 +177,7 @@ int renderGraph3(TestNode *node, int indent, int fd) {
     return 0;
 }
 
+// Start the test in a child process, redirecting output to the provided file descriptors
 int startTest(void (*test)(), int stdoutFd, int stderrFd) {
     pid_t pid = fork();
     if (pid < 0) {
@@ -190,7 +193,10 @@ int startTest(void (*test)(), int stdoutFd, int stderrFd) {
     return pid;
 }
 
-int startGraph(char *path, TestNode *node) {
+// Start all the tests in a node, recursively. The path argument is the filepath where the test
+// output will go, and it is modified in-place. It should be a buffer of size PATH_MAX,
+// initialized to a c-string of the root directory of where test output will go.
+int startTestNode(TestNode *node, char path[PATH_MAX]) {
     size_t pathLength = strlen(path);
     path[pathLength] = '/';
     size_t nameLength = strlen(node->name);
@@ -221,14 +227,15 @@ int startGraph(char *path, TestNode *node) {
         int mkdirStatus = mkdir(path, 0777);
         if (mkdirStatus) {
             if (errno != EEXIST) {
-                fprintf(stderr, "mkdir returned %d for %s: %s\n", mkdirStatus, path, strerror(errno));
+                fprintf(stderr, "mkdir returned %d for %s: %s\n", mkdirStatus, path,
+                        strerror(errno));
                 return -1;
             }
             printf("%s already exists\n", path);
         }
         for (int i = 0; i < node->numChildren; ++i) {
             TestNode *child = node->children[i];
-            if (startGraph(path, child)) {
+            if (startTestNode(child, path)) {
                 fprintf(stderr, "%s failed to start graph for %s\n", node->name,
                         child->name);
                 return -1;
@@ -239,6 +246,7 @@ int startGraph(char *path, TestNode *node) {
     return 0;
 }
 
+// Remove a trailing slash, if it exists, from a filepath.
 void removeTrailingSlash(char *path) {
     size_t pathLength = strlen(path);
     if (pathLength > 0 && path[pathLength - 1] == '/') {
@@ -246,6 +254,8 @@ void removeTrailingSlash(char *path) {
     }
 }
 
+// Each test node has a process id; this function searches for a node with the provided pid,
+// recursively and returns NULL if no such node exists.
 TestNode *findNodeWithPid(TestNode *node, pid_t pid) {
     if (node->isLeaf) {
         if (node->pid == pid) {
@@ -262,11 +272,14 @@ TestNode *findNodeWithPid(TestNode *node, pid_t pid) {
     return NULL;
 }
 
-int renderGraph(TestNode *root, FILE *file) {
-    printf(ESC "c" CSI "3J");
+// Render the root test node, outputting to the provided FILE. It needs to be a FILE and not a
+// file descriptor because we need to flush it in order for the ANSI stuff (terminal colors) to
+// work properly.
+int renderRootTestNode(TestNode *root, FILE *file) {
+    printf(CLEAR_SCREEN); // Clear the console
     fflush(file);
     dprintf(fileno(file), "TestC\n");
-    if (renderGraph3(root, 0, fileno(file))) {
+    if (renderTestNode(root, 0, fileno(file))) {
         fprintf(stderr, "failed to render graph\n");
         return -1;
     }
@@ -275,36 +288,45 @@ int renderGraph(TestNode *root, FILE *file) {
 }
 
 typedef struct {
-    pthread_mutex_t *mutex;
+    // There are two threads which can write to the screen, this makes it so only one will render
+    // at a time.
+    pthread_mutex_t *screenRenderMutex;
+
     TestNode *root;
+
+    // The rate at which the spinners will re-render.
     float fps;
+
+    // The exit status of the render thread, not the tests.
     int exitStatus;
 } RenderThreadArgs;
 
+// The function that the render thread will run. It re-renders the screen every 1/fps seconds, but
+// it uses a mutex so that it doesn't interfere with screen renders that come from the main thread.
 void *renderLoop(void *input) {
     RenderThreadArgs *args = input;
     long us = (long) (1000.f * 1000.f / args->fps);
     while (1) {
-        if (pthread_mutex_lock(args->mutex)) {
+        if (pthread_mutex_lock(args->screenRenderMutex)) {
             perror("render loop failed to lock mutex");
             args->exitStatus = 1;
             return NULL;
         }
         if (args->root->numPassed + args->root->numFailed == args->root->numTests) {
-            if (pthread_mutex_unlock(args->mutex)) {
-                perror("render loop failed ot unlock mutex while trying to exit");
+            if (pthread_mutex_unlock(args->screenRenderMutex)) {
+                perror("render loop failed to unlock mutex while trying to exit");
                 args->exitStatus = 1;
                 return NULL;
             }
             args->exitStatus = 0;
             return NULL;
         }
-        if (renderGraph(args->root, stdout)) {
+        if (renderRootTestNode(args->root, stdout)) {
             fprintf(stderr, "render loop failed to render graph\n");
             args->exitStatus = 1;
             return NULL;
         }
-        if (pthread_mutex_unlock(args->mutex)) {
+        if (pthread_mutex_unlock(args->screenRenderMutex)) {
             perror("render loop failed to unlock mutex");
             args->exitStatus = 1;
             return NULL;
@@ -313,19 +335,22 @@ void *renderLoop(void *input) {
     }
 }
 
-void freeGraph(TestNode *node) {
+// Recursively free a test node
+void freeNode(TestNode *node) {
     if (!node->isLeaf) {
         for (int i = 0; i < node->numChildren; ++i) {
-            freeGraph(node->children[i]);
+            freeNode(node->children[i]);
         }
         free(node->children);
     }
     free(node);
 }
 
+// This method is useful when you want to debug a specific test since follow-fork-mode is
+// GDB-specific, IDE specific, and it is not suited to parallel execution.
 void TestC_runNoFork(const TestSuite *suite) {
     if (suite->isLeaf) {
-        printf(RUNNING "Testing %s\n" RESET, suite->name);
+        printf(RUNNING_TEST_COLOR "Testing %s\n" RESET_COLOR, suite->name);
         suite->test();
     } else {
         for (int i = 0; i < suite->numChildren; ++i) {
@@ -335,6 +360,7 @@ void TestC_runNoFork(const TestSuite *suite) {
     }
 }
 
+// Find the test suite with the given path e.g. `all.http.parser.badRequest`
 const TestSuite *findSuite(const TestSuite *suite, const char *filter) {
     if (strcmp(suite->name, filter) == 0) {
         return suite;
@@ -355,6 +381,7 @@ const TestSuite *findSuite(const TestSuite *suite, const char *filter) {
     return NULL;
 }
 
+// Utility method which is so far only used in the test for this file.
 TestNode *findNode(TestNode *node, const char *filter) {
     if (strcmp(node->name, filter) == 0) {
         return node;
@@ -377,6 +404,8 @@ TestNode *findNode(TestNode *node, const char *filter) {
     return NULL;
 }
 
+// When the test runner finishes, there probably be a lot of empty files which were created during
+// the test, but never written to. This method cleans up all those empty files.
 int deleteEmptyLogs(const TestNode *node, char *path, int *deleted) {
     int len = (int) strlen(path);
     strcat(path, "/");
@@ -428,7 +457,9 @@ int deleteEmptyLogs(const TestNode *node, char *path, int *deleted) {
     return 0;
 }
 
-
+// Run a test suite by converting it into a test node and then running that test node. If the result
+// argument is non-NULL, the results of the test can be inspected, but it's up to the caller to
+// run freeNode(*result).
 int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result) {
     char dir[PATH_MAX];
 
@@ -508,9 +539,9 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
         *result = root;
     }
     int numDone = 0;
-    if (startGraph(dir, root)) {
+    if (startTestNode(root, dir)) {
         fprintf(stderr, "failed to start tests\n");
-        freeGraph(root);
+        freeNode(root);
         return -1;
     }
 
@@ -527,14 +558,14 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
     pthread_mutex_init(&renderMutex, NULL);
     RenderThreadArgs renderThreadArgs = {
             .root = root,
-            .mutex = &renderMutex,
+            .screenRenderMutex = &renderMutex,
             .fps = fps
     };
     pthread_t renderThread;
     if ((renderProgress) && pthread_create(&renderThread, NULL, renderLoop,
                                            &renderThreadArgs)) {
         perror("failed to create render thread");
-        freeGraph(root);
+        freeNode(root);
         return -1;
     }
 
@@ -552,7 +583,7 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
             if (renderProgress && pthread_cancel(renderThread)) {
                 perror("failed to cancel render thread while cleaning up wait loop");
             }
-            freeGraph(root);
+            freeNode(root);
             return -1;
         }
         pid_t pid = waitStatus;
@@ -585,7 +616,7 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
                 node->numFailed += 1;
             }
         }
-        if (renderGraph(root, stdout)) {
+        if (renderRootTestNode(root, stdout)) {
             fprintf(stderr, "failed to render graph in wait loop\n");
             goto err;
         }
@@ -595,7 +626,7 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
         }
         ++numDone;
     }
-    int status = renderGraph(root, stdout);
+    int status = renderRootTestNode(root, stdout);
 
     int rootDeleted = 0;
     if (deleteEmptyLogs(root, dir, &rootDeleted) != 0) {
@@ -609,14 +640,17 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
     }
 
     if (result == NULL) {
-        freeGraph(root);
+        freeNode(root);
     }
 
     printf("Test results written to:\n%s\n", dir);
     return status;
 }
 
+// Some stuff for parsing command line arguments
+
 typedef enum {
+    // A void parameter means something like --nofork
     CommandLineParameterType_void,
     CommandLineParameterType_int,
     CommandLineParameterType_float,
@@ -624,7 +658,8 @@ typedef enum {
 } CommandLineParameterType;
 
 typedef struct {
-    const char *key;
+    // The name should not include dashes--those are added by the user only.
+    const char *name;
     CommandLineParameterType type;
     int required;
 
@@ -632,7 +667,7 @@ typedef struct {
         int *int_;
         float *float_;
         const char **str_;
-    } parsed;
+    } parsedArgument;
     int numOptions;
     union {
         int *int_;
@@ -646,7 +681,7 @@ void printUsage(CommandLineParameter *parameters, int numParameters) {
 
     for (int i = 0; i < numParameters; ++i) {
         CommandLineParameter parameter = parameters[i];
-        printf("  --%s", parameter.key);
+        printf("  --%s", parameter.name);
         switch (parameter.type) {
             case CommandLineParameterType_void:
                 printf(" [void]");
@@ -669,13 +704,13 @@ void printUsage(CommandLineParameter *parameters, int numParameters) {
             switch (parameter.type) {
                 case CommandLineParameterType_void:
                 case CommandLineParameterType_int:
-                    printf("%d", *parameter.parsed.int_);
+                    printf("%d", *parameter.parsedArgument.int_);
                     break;
                 case CommandLineParameterType_float:
-                    printf("%f", *parameter.parsed.float_);
+                    printf("%f", *parameter.parsedArgument.float_);
                     break;
                 case CommandLineParameterType_str:
-                    printf("%s", *parameter.parsed.str_);
+                    printf("%s", *parameter.parsedArgument.str_);
                     break;
             }
         }
@@ -706,31 +741,31 @@ typedef enum {
     ParseArgumentsResult_HELP,
 } ParseArgumentsResult;
 
-ParseArgumentsResult parseArguments(CommandLineParameter *parameters, int numParameters, int argc, char **argv) {
+ParseArgumentsResult
+parseArguments(CommandLineParameter *parameters, int numParameters, int argc, char **argv) {
     char **end = argv + argc;
 
     // skip the first argument, which is usually the path to the executable
     argv = argv + 1;
 
     while (argv != end) {
-        char *key = *(argv++);
-        key = key + 2; // arg=--key so ignore the first 2 chars
+        char *parameterName = *(argv++);
+        parameterName = parameterName + 2; // arg=--key so ignore the first 2 chars
 
-        if (strcmp(key, "help") == 0) {
-            printUsage(parameters, numParameters);
+        if (strcmp(parameterName, "help") == 0) {
             return ParseArgumentsResult_HELP;
         }
 
         int matched = 0;
         for (int i = 0; i < numParameters; ++i) {
             CommandLineParameter parameter = parameters[i];
-            if (strcmp(key, parameter.key) == 0) {
+            if (strcmp(parameterName, parameter.name) == 0) {
                 matched = 1;
 
                 char *value;
                 if (parameter.type != CommandLineParameterType_void) {
                     if (argv == end) {
-                        printf("expected an argument to %s\n", parameter.key);
+                        printf("expected an argument to %s\n", parameter.name);
                         goto badArgs;
                     }
                     value = *(argv++);
@@ -738,14 +773,14 @@ ParseArgumentsResult parseArguments(CommandLineParameter *parameters, int numPar
 
                 switch (parameter.type) {
                     case CommandLineParameterType_void: {
-                        *parameter.parsed.int_ = 1;
+                        *parameter.parsedArgument.int_ = 1;
                     }
                         break;
                     case CommandLineParameterType_int: {
                         char *endptr;
                         int intVal = (int) strtol(value, &endptr, 10);
                         if (endptr == NULL) {
-                            printf("%s expected an int but got %s\n", key, value);
+                            printf("%s expected an int but got %s\n", parameterName, value);
                             goto badArgs;
                         }
                         int gotOption = 0;
@@ -758,24 +793,24 @@ ParseArgumentsResult parseArguments(CommandLineParameter *parameters, int numPar
                             }
                         }
                         if (!gotOption) {
-                            printf("%s got an invalid value: %s\n", key, value);
+                            printf("%s got an invalid value: %s\n", parameterName, value);
                             goto badArgs;
                         }
-                        *parameter.parsed.int_ = intVal;
+                        *parameter.parsedArgument.int_ = intVal;
                     }
                         break;
                     case CommandLineParameterType_float: {
                         char *endptr;
                         float floatVal = strtof(value, &endptr);
                         if (endptr == NULL) {
-                            printf("%s expected a float but got %s\n", key, value);
+                            printf("%s expected a float but got %s\n", parameterName, value);
                             goto badArgs;
                         }
-                        *parameter.parsed.float_ = floatVal;
+                        *parameter.parsedArgument.float_ = floatVal;
                     }
                         break;
                     case CommandLineParameterType_str: {
-                        *parameter.parsed.str_ = value;
+                        *parameter.parsedArgument.str_ = value;
                     }
                         break;
                 }
@@ -784,7 +819,7 @@ ParseArgumentsResult parseArguments(CommandLineParameter *parameters, int numPar
             }
         }
         if (!matched) {
-            fprintf(stderr, "Unknown option %s\n", key);
+            fprintf(stderr, "Unknown option %s\n", parameterName);
             goto badArgs;
         }
     }
@@ -795,6 +830,7 @@ ParseArgumentsResult parseArguments(CommandLineParameter *parameters, int numPar
     return ParseArgumentsResult_BAD_ARGS;
 }
 
+// The journey of a thousand miles begins with a single step.
 int TestC_main(const TestSuite *suite, int argc, char **argv) {
 
     TestRunOptions options;
@@ -806,49 +842,51 @@ int TestC_main(const TestSuite *suite, int argc, char **argv) {
 
     CommandLineParameter parameters[] = {
             {
-                    .key = "animate",
+                    .name = "animate",
                     .type = CommandLineParameterType_int,
                     .numOptions = 2,
                     .options.int_ = (int[]) {0, 1},
-                    .parsed.int_ = &options.animate,
+                    .parsedArgument.int_ = &options.animate,
                     .doc = "should progress indicators animate"
             },
             {
-                    .key = "fps",
+                    .name = "fps",
                     .type = CommandLineParameterType_float,
-                    .parsed.float_ = &options.fps,
+                    .parsedArgument.float_ = &options.fps,
                     .doc = "framerate of progress indicator animation"
             },
             {
-                    .key = "nofork",
+                    .name = "nofork",
                     .type = CommandLineParameterType_void,
-                    .parsed.int_ = &options.noFork,
+                    .parsedArgument.int_ = &options.noFork,
                     .doc = "tests won't fork--good for debugging, but will crash upon first test "
                            "failure"
             },
             {
-                    .key = "dir",
+                    .name = "dir",
                     .type = CommandLineParameterType_str,
-                    .parsed.str_ = &options.dir,
+                    .parsedArgument.str_ = &options.dir,
                     .doc = "root of test logs--will place logs alongside other test log "
                            "directories within this root (the null default means this will be set"
                            " to $PWD/test_logs at runtime)"
             },
             {
-                    .key = "filter",
+                    .name = "filter",
                     .type = CommandLineParameterType_str,
-                    .parsed.str_ = &options.filter,
+                    .parsedArgument.str_ = &options.filter,
                     .doc = "a period-separated path to a test suite to run"
             }
     };
     int numParameters = sizeof(parameters) / sizeof(*parameters);
 
 
-    ParseArgumentsResult parseArgumentsResult = parseArguments(parameters, numParameters, argc, argv);
+    ParseArgumentsResult parseArgumentsResult = parseArguments(parameters, numParameters, argc,
+                                                               argv);
     if (parseArgumentsResult == ParseArgumentsResult_BAD_ARGS) {
         return 1;
     }
     if (parseArgumentsResult == ParseArgumentsResult_HELP) {
+        printUsage(parameters, numParameters);
         return 0;
     }
 
