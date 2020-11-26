@@ -83,9 +83,16 @@ TestNode *findNode(TestNode *node, const char *filter);
  */
 int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result);
 
+typedef enum {
+    TestCResult_ALL_PASSED = 0,
+    TestCResult_SOME_TESTS_FAILED = 1,
+    TestCResult_INTERNAL_ERROR = 2,
+    TestCResult_BAD_ARGS = 3,
+} TestCResult;
+
 /*
  * Parses the arguments and then calls TestC_run--see docs in the implementation.
  */
-int TestC_main(const TestSuite *suite, int argc, char **argv);
+TestCResult TestC_main(const TestSuite *suite, int argc, char **argv);
 
 #endif

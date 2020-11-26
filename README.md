@@ -3,7 +3,7 @@ This repo contains a tool for writing and running tests in C.
 
 ## Testing this project
 
-```sh
+```shell script
 make test
 ```
 
@@ -45,12 +45,18 @@ This will add a step to download this repo and install it globally.
 
 ## Examples and configuration
 
-See the directory `test` for an example of how to include and use this library. The right way to use this library is to specify one executable per project. This executable should then include every other test in the project as a library.
+See the directory `test` for an example of how to include and use this library. The right way is to specify one executable per project. This executable should then include every other test in the project as a library.
 
-See documentation for the command line options in `TestC_main` or by running
+See documentation for the command line options in `TestC_main` or by running:
 
-```sh
+```shell script
 make help
+```
+
+To see the test runner in action (and to also test this repo), run:
+
+```shell script
+make test
 ```
 
 ![demo](docs/demo.gif)
@@ -72,41 +78,21 @@ is almost always a tree, but it doesn't have to be. So, essentially the nodes in
 These structs employ a simple tag and `union` pattern to store their data depending on whether they are leaf nodes or
 not. All nodes have a name, but only leaf nodes have a test method. Non-leaf nodes have a list of children. 
 
-When writing C code, I prefer to never use macros, but, if they can simplify code a lot, I do use them as a last resort.
-In this case, I've wrote 2 macros: `TEST` and `SUITE`, which save a lot of time. Here's an example before and after
-macros, and I think by looking at it, you'll see that there is almost no way to do this without macros.
-
-Without using macros
 
 ```c
-void testFooBarMethod() {
-    assert(Foo_bar() == expectedFooBar);
+// http_parser_test.c
+TEST(parseBadRequest) {
+    assert(parse() == INVALID_SYNTAX);
 }
 
-const TestSuite testFooBar = {
-        .name = "testFooBar",
-        .isLeaf = 1,
-        .test = testFooBarMethod,
-};
-
-const TestSuite *testFooSuites[] = {&testFooBar};
-
-const TestSuite testFoo = {
-        .name = "testFoo",
-        .isLeaf = 0,
-        .suites = testFooSuites,
-        .numChildren = sizeof(testFooSuites) / sizeof(TestSuite *)
-};
-``` 
-
-After using macros
-
-```c
-TEST(testFooBar) {
-    assert(Foo_bar() == expectedFooBar);
+TEST(parseGoodRequest) {
+    assert(parse() == VALID_REQUEST);
 }
 
-SUITE(testFoo, &testFooBar)
+SUITE(httpParserTest, &parseBadRequest, &parseGoodRequest)
+
+// test.c
+SUITE(all, &httpParserTest, &loadTest, ...)
 ```
 
 There are a couple things that macros help with here:

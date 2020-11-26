@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 // See https://en.wikipedia.org/wiki/ANSI_escape_code
 #define ESC "\033" // Begin an escape sequence
@@ -457,6 +458,10 @@ int deleteEmptyLogs(const TestNode *node, char *path, int *deleted) {
     return 0;
 }
 
+bool exitSignalIsPass(int signal) {
+    return WIFEXITED(signal) && WEXITSTATUS(signal) == 0;
+}
+
 // Run a test suite by converting it into a test node and then running that test node. If the result
 // argument is non-NULL, the results of the test can be inspected, but it's up to the caller to
 // run freeNode(*result).
@@ -610,7 +615,7 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
         clock_gettime(CLOCK_MONOTONIC, &node->end);
         node->exitSignal = testSignal;
         while ((node = node->parent) != NULL) {
-            if (WIFEXITED(testSignal) && WEXITSTATUS(testSignal) == 0) {
+            if (exitSignalIsPass(node->exitSignal)) {
                 node->numPassed += 1;
             } else {
                 node->numFailed += 1;
@@ -830,8 +835,16 @@ parseArguments(CommandLineParameter *parameters, int numParameters, int argc, ch
     return ParseArgumentsResult_BAD_ARGS;
 }
 
-// The journey of a thousand miles begins with a single step.
-int TestC_main(const TestSuite *suite, int argc, char **argv) {
+int TestNode_passed(TestNode *node) {
+    if (node->isLeaf) {
+        assert(node->state == TestState_DONE);
+        return exitSignalIsPass(node->exitSignal);
+    } else {
+        return node->numPassed == node->numTests;
+    }
+}
+
+TestCResult TestC_main(const TestSuite *suite, int argc, char **argv) {
 
     TestRunOptions options;
     options.animate = 1;
@@ -883,12 +896,23 @@ int TestC_main(const TestSuite *suite, int argc, char **argv) {
     ParseArgumentsResult parseArgumentsResult = parseArguments(parameters, numParameters, argc,
                                                                argv);
     if (parseArgumentsResult == ParseArgumentsResult_BAD_ARGS) {
-        return 1;
+        return TestCResult_BAD_ARGS;
     }
     if (parseArgumentsResult == ParseArgumentsResult_HELP) {
         printUsage(parameters, numParameters);
-        return 0;
+        return TestCResult_ALL_PASSED;
     }
 
-    return TestC_run(suite, options, NULL);
+    TestNode *result = NULL;
+    int status = TestC_run(suite, options, &result);
+    if (status != 0) {
+        fprintf(stderr, "test runner failed to run");
+        return TestCResult_INTERNAL_ERROR;
+    }
+    int allPassed = TestNode_passed(result);
+    freeNode(result);
+    if (!allPassed) {
+        return TestCResult_SOME_TESTS_FAILED;
+    }
+    return TestCResult_ALL_PASSED;
 }
