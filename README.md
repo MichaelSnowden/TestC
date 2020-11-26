@@ -13,6 +13,7 @@ Add this to your `CMakeLists.txt`:
 
 ```cmake
 # clone and install the repo
+# alternatively, you can just clone and run `make install` once
 include(ExternalProject)
 ExternalProject_Add(
         testc
