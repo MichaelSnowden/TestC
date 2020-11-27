@@ -2,6 +2,8 @@
 #define TESTC_TEST_SUITE_H
 
 #include <string.h>
+#include <execinfo.h>
+#include <testc/stack_trace.h>
 
 typedef void(*test_t)();
 
@@ -86,9 +88,11 @@ int TestSuite_numTests(const TestSuite *suite);
         type xVal = x;       \
         type yVal = y;                   \
         if (!(xVal cmp yVal)) {   \
+            fprintf(stderr, "%s:%d\n", __FILE__, __LINE__);                                      \
             fprintf(stderr, "Assertion Failed: " #x " " #cmp " " #y " where:\n"); \
             PRINT_ASSIGNMENT(x, xVal, format)                      \
-            PRINT_ASSIGNMENT(y, yVal, format)                      \
+            PRINT_ASSIGNMENT(y, yVal, format)                                                    \
+            printStackTrace(STDOUT_FILENO, 16);                                \
             exit(EXIT_FAILURE);       \
         } \
     }

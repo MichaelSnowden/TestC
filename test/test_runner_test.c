@@ -84,31 +84,40 @@ TEST(modifyConstString) {
 
 SUITE(errors, &sleepThenFail, &sleepThenDereferenceNullPointer, &modifyConstString)
 
-SUITE(exampleTestSuite, &fast, &nestedTestSuite, &fileIO, &slow, &errors)
 
-void assertResults(TestNode *root, char *path, int numPassed, int numFailed) {
-    printf("verifying that the results of %s were %d passed and %d failed...\n", path, numPassed,
-           numFailed);
+void assertResults(TestNode *root, char *path, int expectedNumPassed, int expectedNumFailed) {
+    printf("verifying that the results of %s were %d passed and %d failed...\n", path, expectedNumPassed,
+           expectedNumFailed);
     TestNode *node = findNode(root, path);
     ASSERT_NEQ(node, NULL, TestNode*, %p);
     if (node->isLeaf) {
         ASSERT_EQ(node->state, TestState_DONE, int, %d);
-        int passed = WIFEXITED(node->exitSignal) && (WEXITSTATUS(node->exitSignal) == 0);
-        if (numPassed == 1) {
-            ASSERT_EQ(numFailed, 0, int, %d);
+        int passed = WIFEXITED(node->exitSignal) && (WEXITSTATUS(node->exitSignal) == EXIT_SUCCESS);
+        if (expectedNumPassed == 1) {
+            ASSERT_EQ(expectedNumFailed, 0, int, %d);
             ASSERT_EQ(passed, 1, int, %d);
-        } else if (numFailed == 1) {
-            ASSERT_NEQ(passed, 0, int, %d);
+        } else if (expectedNumFailed == 1) {
+            ASSERT_EQ(passed, 0, int, %d);
         } else {
             fprintf(stderr, "invalid assertion for leaf test node\n");
             exit(EXIT_FAILURE);
         }
     } else {
-        ASSERT_EQ(node->numTests, numPassed + numFailed, int, %d);
-        ASSERT_EQ(node->numPassed, numPassed, int, %d);
-        ASSERT_EQ(node->numFailed, numFailed, int, %d);
+        ASSERT_EQ(node->numTests, expectedNumPassed + expectedNumFailed, int, %d);
+        ASSERT_EQ(node->numPassed, expectedNumPassed, int, %d);
+        ASSERT_EQ(node->numFailed, expectedNumFailed, int, %d);
     }
 }
+
+void foo() {
+    ASSERT_EQ(2+2, 3, int, %d);
+}
+
+TEST(stackTrace) {
+    foo();
+}
+
+SUITE(exampleTestSuite, &fast, &nestedTestSuite, &fileIO, &slow, &errors, &stackTrace)
 
 TEST(testTestRunner) {
     TestRunOptions options = {
@@ -118,8 +127,7 @@ TEST(testTestRunner) {
             .noFork = 0,
     };
     TestNode *result;
-    ASSERT_EQ(TestC_run(&exampleTestSuite, options, &result),
-              TestCResult_SOME_TESTS_FAILED, int, %d);
+    ASSERT_EQ(TestC_run(&exampleTestSuite, options, &result),0, int, %d);
 
     assertResults(result, "exampleTestSuite.fast", 1, 0);
     assertResults(result, "exampleTestSuite.nestedTestSuite", 8, 0);
@@ -129,6 +137,7 @@ TEST(testTestRunner) {
     assertResults(result, "exampleTestSuite.fileIO", 4, 0);
     assertResults(result, "exampleTestSuite.slow", 1, 0);
     assertResults(result, "exampleTestSuite.errors", 0, 3);
+    assertResults(result, "exampleTestSuite.stackTrace", 0, 1);
 
     // TODO: add tests to verify file I/O to test logs directory
 

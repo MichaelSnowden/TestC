@@ -347,15 +347,34 @@ void freeNode(TestNode *node) {
     free(node);
 }
 
+int exitSignalIsPass(int signal) {
+    return WIFEXITED(signal) && WEXITSTATUS(signal) == EXIT_SUCCESS;
+}
+
+void finishTest(TestNode *node, int testSignal) {
+    node->state = TestState_DONE;
+    clock_gettime(CLOCK_MONOTONIC, &node->end);
+    node->exitSignal = testSignal;
+    int passed = exitSignalIsPass(node->exitSignal);
+    while ((node = node->parent) != NULL) {
+        if (passed) {
+            node->numPassed += 1;
+        } else {
+            node->numFailed += 1;
+        }
+    }
+}
+
 // This method is useful when you want to debug a specific test since follow-fork-mode is
 // GDB-specific, IDE specific, and it is not suited to parallel execution.
-void TestC_runNoFork(const TestSuite *suite) {
-    if (suite->isLeaf) {
-        printf(RUNNING_TEST_COLOR "Testing %s\n" RESET_COLOR, suite->name);
-        suite->test();
+void TestC_runNoFork(TestNode *node) {
+    if (node->isLeaf) {
+        printf(RUNNING_TEST_COLOR "Testing %s\n" RESET_COLOR, node->name);
+        node->test();
+        finishTest(node, 0);
     } else {
-        for (int i = 0; i < suite->numChildren; ++i) {
-            const struct TestSuite *child = suite->children[i];
+        for (int i = 0; i < node->numChildren; ++i) {
+            struct TestNode *child = node->children[i];
             TestC_runNoFork(child);
         }
     }
@@ -458,10 +477,6 @@ int deleteEmptyLogs(const TestNode *node, char *path, int *deleted) {
     return 0;
 }
 
-bool exitSignalIsPass(int signal) {
-    return WIFEXITED(signal) && WEXITSTATUS(signal) == 0;
-}
-
 // Run a test suite by converting it into a test node and then running that test node. If the result
 // argument is non-NULL, the results of the test can be inspected, but it's up to the caller to
 // run freeNode(*result).
@@ -527,7 +542,14 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
     }
 
     if (options.noFork) {
-        TestC_runNoFork(suite);
+        int numTests;
+        TestNode *node = buildGraph(NULL, suite, &numTests);
+        TestC_runNoFork(node);
+        if (result == NULL) {
+            freeNode(node);
+        } else {
+            *result = node;
+        }
         return 0;
     }
 
@@ -611,16 +633,7 @@ int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result)
                             "already marked done\n", node->name);
             goto err;
         }
-        node->state = TestState_DONE;
-        clock_gettime(CLOCK_MONOTONIC, &node->end);
-        node->exitSignal = testSignal;
-        while ((node = node->parent) != NULL) {
-            if (exitSignalIsPass(node->exitSignal)) {
-                node->numPassed += 1;
-            } else {
-                node->numFailed += 1;
-            }
-        }
+        finishTest(node, testSignal);
         if (renderRootTestNode(root, stdout)) {
             fprintf(stderr, "failed to render graph in wait loop\n");
             goto err;
