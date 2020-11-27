@@ -76,9 +76,9 @@ TestNode *findNode(TestNode *node, const char *filter);
 /*
  * This function will run a test suite in parallel, spitting logs out to the target directory. The
  * target directory must exist. The fps argument is the number of frames per second that the
- * output should be rendered at. This will only work well on console that support ANSI escape codes.
- * Unfortunately, CLion does not support console clearing because its embedded terminal is more
- * like a log file. Instead, you should run this in an external terminal. You can reuse the
+ * output should be rendered at. This will only work well on console that support ANSI escape
+ * codes. Unfortunately, CLion does not support console clearing because its embedded terminal is
+ * more like a log file. Instead, you should run this in an external terminal. You can reuse the
  * builds that CLion makes by finding the binary in cmake-build-debug.
  */
 int TestC_run(const TestSuite *suite, TestRunOptions options, TestNode **result);

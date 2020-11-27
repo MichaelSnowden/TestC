@@ -40,8 +40,8 @@ int humanizeDuration(long long nanos, int fd) {
 }
 
 // TestSuites are constant and only capture the test definition, but TestNodes are variable: they
-// have a test state (e.g. running, passed/failed). This function takes a TestSuite and recursively
-// builds a TestNode graph
+// have a test state (e.g. running, passed/failed). This function takes a TestSuite and
+// recursively builds a TestNode graph.
 TestNode *buildGraph(TestNode *parent, const TestSuite *suite, int *numTests) {
     TestNode *node = calloc(1, sizeof(TestNode));
     node->parent = parent;
@@ -195,8 +195,8 @@ int startTest(void (*test)(), int stdoutFd, int stderrFd) {
 }
 
 // Start all the tests in a node, recursively. The path argument is the filepath where the test
-// output will go, and it is modified in-place. It should be a buffer of size PATH_MAX,
-// initialized to a c-string of the root directory of where test output will go.
+// output will go, and it is modified in-place. It should be a buffer of size PATH_MAX, initialized
+// to a c-string of the root directory of where test output will go.
 int startTestNode(TestNode *node, char path[PATH_MAX]) {
     size_t pathLength = strlen(path);
     path[pathLength] = '/';
@@ -273,9 +273,9 @@ TestNode *findNodeWithPid(TestNode *node, pid_t pid) {
     return NULL;
 }
 
-// Render the root test node, outputting to the provided FILE. It needs to be a FILE and not a
-// file descriptor because we need to flush it in order for the ANSI stuff (terminal colors) to
-// work properly.
+// Render the root test node, outputting to the provided FILE. It needs to be a FILE and not a file
+// descriptor because we need to flush it in order for the ANSI stuff (terminal colors) to work
+// properly.
 int renderRootTestNode(TestNode *root, FILE *file) {
     printf(CLEAR_SCREEN); // Clear the console
     fflush(file);
@@ -289,8 +289,8 @@ int renderRootTestNode(TestNode *root, FILE *file) {
 }
 
 typedef struct {
-    // There are two threads which can write to the screen, this makes it so only one will render
-    // at a time.
+    // There are two threads which can write to the screen, this makes it so only one will render at
+    // a time.
     pthread_mutex_t *screenRenderMutex;
 
     TestNode *root;

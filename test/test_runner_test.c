@@ -1,9 +1,9 @@
 #include <zconf.h>
 #include <stdio.h>
-#include <assert.h>
 #include <stdlib.h>
 #include <testc/test_runner.h>
 #include <testc/test_suite.h>
+#include <testc/assert.h>
 
 TEST(fast) {
 
@@ -86,13 +86,12 @@ SUITE(errors, &sleepThenFail, &sleepThenDereferenceNullPointer, &modifyConstStri
 
 
 void assertResults(TestNode *root, char *path, int expectedNumPassed, int expectedNumFailed) {
-    printf("verifying that the results of %s were %d passed and %d failed...\n", path, expectedNumPassed,
-           expectedNumFailed);
     TestNode *node = findNode(root, path);
     ASSERT_NEQ(node, NULL, TestNode*, %p);
     if (node->isLeaf) {
         ASSERT_EQ(node->state, TestState_DONE, int, %d);
-        int passed = WIFEXITED(node->exitSignal) && (WEXITSTATUS(node->exitSignal) == EXIT_SUCCESS);
+        int passed = WIFEXITED(node->exitSignal)
+                && (WEXITSTATUS(node->exitSignal) == EXIT_SUCCESS);
         if (expectedNumPassed == 1) {
             ASSERT_EQ(expectedNumFailed, 0, int, %d);
             ASSERT_EQ(passed, 1, int, %d);

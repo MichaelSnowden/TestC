@@ -7,7 +7,10 @@ This repo contains a tool for writing and running tests in C.
 make test
 ```
 
-## Including in your own project
+It's worth checking out the test logs directory, especially `stackTrace.txt` because it shows an 
+example stack trace from the `printStackTrace` function this repo provides.
+
+## Including in your project
 
 Add this to your `CMakeLists.txt`:
 
@@ -45,7 +48,9 @@ This will add a step to download this repo and install it globally.
 
 ## Examples and configuration
 
-See the directory `test` for an example of how to include and use this library. The right way is to specify one executable per project. This executable should then include every other test in the project as a library.
+See the directory `test` for an example of how to include and use this library. The right way is to
+specify one  executable per project. This executable should then include every other test in the 
+project as a library.
 
 See documentation for the command line options in `TestC_main` or by running:
 
@@ -61,7 +66,8 @@ make test
 
 ![demo](docs/demo.gif)
 
-Test logs are generated for each run by default, but they are not included if `--nofork` is specified.
+Test logs are generated for each run by default, but they are not included if 
+`--nofork` is specified.
 
 ![log_directory](docs/test_logs.png)
 
@@ -79,7 +85,7 @@ TEST(parseGoodRequest) {
 }
 
 TEST(parseBadRequest) {
-    ASSERT_EQ(parse(badRequest, 1));
+    ASSERT_EQ(parse(badRequest), 1);
 }
 
 SUITE(httpParser, &parseGoodRequest, &parseBadRequest)
@@ -117,14 +123,18 @@ target_link_libraries(test http_parser_test)
 
 ## Debugging
 
-To debug a test, debug the main file with `--nofork` and specify `--filter` to be `path.to.test`; e.g. `all.httpParser.parseGoodRequest`.
+To debug a test, debug the main file with `--nofork` and specify `--filter` to be `path.to.test`; e.g. 
+`all.httpParser.parseGoodRequest`.
 
 ## Implementation details
 
-A test is just a void function, so it either returns, runs forever, or eventually causes a signal that the parent process can check. We consider a test to pass iff it returns or if it exits with an exit
-status of zero (`WIFEXITED(signal) && WEXITSTATUS(signal) == 0`). Since test failures can cause their process to exit, we need to sandbox them. This library sandboxes tests by running them in a child process using `fork`. The calling process then waits for the child process 
-and determines whether it was a pass or a fail by checking the resulting signal from `wait`. Since the test runs in a child
-process, it also makes it easy to silence any logs it outputs to stdout using `dup2`, and it's also easy to delay the
-processing of its stderr logs. We don't want to just let the test output to the stderr of the parent process because
-we want the result of the test to appear before it in the logs, and we also want to format its output by indenting it
-properly.
+A test is just a void function, so it either returns, runs forever, or eventually causes a signal 
+that the parent  process can check. We consider a test to pass iff it returns or if it exits with an
+exit status of zero (`WIFEXITED(signal) && WEXITSTATUS(signal) == 0`). Since test failures can cause
+their process to exit, we need to sandbox them. This library sandboxes tests by running them in a 
+child process using `fork`. The calling process then waits for the child process and determines 
+whether it was a pass or a fail by checking the resulting signal from `wait`. Since the test runs in 
+a child process, it also makes it easy to silence any logs it outputs to stdout using `dup2`,and 
+it's also easy to delay the processing of its stderr logs. We don't want to just let the test output 
+to the stderr of the parent process because we want the result of the test to appear before it in the 
+logs, and we also want to format its output by indenting it properly.

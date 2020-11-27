@@ -49,7 +49,8 @@ void printStackTrace(int fd, int maxDepth) {
         int status = pclose(outputFile);
         assert(WIFEXITED(status));
         if (WEXITSTATUS(status) == EXIT_SUCCESS) {
-            if (strncmp(output, executable, strlen(executable)) == 0) {
+            if (strncmp(output, executable, strlen(executable)) == 0
+                && *(output + strlen(executable)) == ' ') {
                 dprintf(fd, "%s", output);
                 dprintf(fd, "looks like your compiler is missing debug information (add -g)\n");
             } else if (strncmp(output, "0x", 2) == 0) {
@@ -63,7 +64,7 @@ void printStackTrace(int fd, int maxDepth) {
                 dprintf(fd, "%s (%s)\n", sourceCodeLine, function);
             }
         } else {
-            dprintf(fd, "atos error: %soriginal command: %s\n", output, command);
+            dprintf(fd, "stack trace error: %soriginal command: %s\n", output, command);
         }
     }
 }
